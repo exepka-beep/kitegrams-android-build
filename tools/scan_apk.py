@@ -25,6 +25,10 @@ APK — это zip, содержимое не сжато «в никуда»: с
 ложных срабатываний на UTF-16LE не бывает — обычный ASCII в этой кодировке
 перемежается нулевыми байтами.
 
+Файлы подписи (`META-INF/*.RSA`, `*.SF`, `*.MF`) пропускаются — см. комментарий
+у `SIGNATURE_FILES`: DN сертификата это не брендинг, а неизменяемый отпечаток
+ключа, которым APK подписан.
+
 Использование
 -------------
     scan_apk.py app.apk --absent Xtreegram --present 94.156.170.106
@@ -67,6 +71,21 @@ DEFAULT_ABSENT = (
     "xtreegramkey",
 )
 
+# Файлы подписи не проверяются. Внутри `META-INF/CERT.RSA` лежит X.509-сертификат
+# ключа, которым подписан APK, и в его DN навсегда записано то имя, с которым
+# keystore когда-то сгенерировали (`CN=Xtreegram, ...`). Это не брендинг
+# приложения: строку нельзя ни перевести, ни заменить, ни показать пользователю —
+# её видно только в `apksigner verify --print-certs`. Перевыпуск ключа ради
+# косметики стоил бы смены подписи, то есть невозможности обновить уже
+# установленный APK поверх старого. Поэтому сертификат проверяем отдельно
+# (SHA-256 отпечаток в `verify_apk.sh`), а здесь пропускаем.
+SIGNATURE_FILES = (".RSA", ".DSA", ".EC", ".SF", ".MF")
+
+
+def is_signature_file(name: str) -> bool:
+    upper = name.upper()
+    return upper.startswith("META-INF/") and upper.endswith(SIGNATURE_FILES)
+
 
 def scan(path: pathlib.Path, markers, present):
     """{marker: [(имя файла в архиве, кодировка, смещение)]}"""
@@ -74,6 +93,8 @@ def scan(path: pathlib.Path, markers, present):
     with zipfile.ZipFile(path) as zf:
         for info in zf.infolist():
             if info.is_dir():
+                continue
+            if is_signature_file(info.filename):
                 continue
             try:
                 raw = zf.read(info)
