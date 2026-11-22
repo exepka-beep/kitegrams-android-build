@@ -75,7 +75,7 @@ jobs:
       APP_PACKAGE: com.kitegrams.messenger
       APP_LABEL: KiteGrams
       # versionCode afat = APP_VERSION_CODE * 10 + 9 (см. TMessagesProj_App/build.gradle).
-      EXPECTED_VERSION_CODE: "70439"
+      EXPECTED_VERSION_CODE: "70449"
 
       # Отпечаток сертификата ключа подписи KiteGrams. Если APK подписан не им,
       # обновление поверх установленного приложения не встанет — лучше упасть здесь.
