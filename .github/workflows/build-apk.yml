@@ -70,8 +70,8 @@ jobs:
 
       # Версия. Совпадает с XTree Gram намеренно: это тот же код, и различать
       # сборки по номеру версии смысла нет — их различает applicationId.
-      APP_VERSION_CODE: "7043"
-      APP_VERSION_NAME: "12.10.1"
+      APP_VERSION_CODE: "7044"
+      APP_VERSION_NAME: "12.10.2"
       APP_PACKAGE: com.kitegrams.messenger
       APP_LABEL: KiteGrams
       # versionCode afat = APP_VERSION_CODE * 10 + 9 (см. TMessagesProj_App/build.gradle).
