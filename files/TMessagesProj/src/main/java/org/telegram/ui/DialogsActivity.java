@@ -269,6 +269,7 @@ import org.telegram.ui.community.CommunityEditActivity;
 import org.telegram.ui.community.CommunityPendingRequestsActivity;
 import org.telegram.ui.community.CommunityUtils;
 import org.telegram.ui.community.cells.CommunityRequestsCell;
+import org.telegram.ui.Wallet.WalletActivity;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -13728,6 +13729,9 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             Bundle args = new Bundle();
             args.putLong("user_id", UserConfig.getInstance(currentAccount).getClientUserId());
             presentFragment(new ChatActivity(args));
+        });
+        io.add(R.drawable.ic_wallet_kg, "Деньги", () -> {
+            presentFragment(new WalletActivity());
         });
         if (ApplicationLoader.applicationLoaderInstance != null) {
             ApplicationLoader.applicationLoaderInstance.addItemOptions(io);
