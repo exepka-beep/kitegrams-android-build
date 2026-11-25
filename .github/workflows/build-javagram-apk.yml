@@ -11,8 +11,8 @@ name: Build KiteGrams APK (JavaGram base)
 # Что меняется:
 #   - сервер 2.26.81.132:2398 -> 2.26.81.165:2398 (KiteGrams);
 #   - package org.javagram.messenger.web -> com.kitegrams.messenger;
-#   - видимый бренд JavaGram -> KiteGrams.
-# RSA-ключ сервера в APK не зашит: JavaGram запрашивает его у сервера сам.
+#   - видимый бренд JavaGram -> KiteGrams;
+#   - встроенные RSA-ключи Telegram -> RSA-ключ KiteGrams (иначе handshake не проходит).
 
 on:
   workflow_dispatch:
@@ -153,10 +153,19 @@ jobs:
           print('  package / server / branding verified')
           PY
           for abi in arm64-v8a armeabi-v7a x86 x86_64; do
-            unzip -p "$APK" "lib/$abi/libtmessages.49.so" | grep -aq '2.26.81.165' \
+            LIB="$(mktemp)"
+            unzip -p "$APK" "lib/$abi/libtmessages.49.so" > "$LIB"
+            grep -aq '2.26.81.165' "$LIB" \
               || { echo "FAIL: $abi lib not repointed" >&2; exit 1; }
+            grep -aq 'MIIBCgKCAQEA61rNnUM' "$LIB" \
+              || { echo "FAIL: $abi lib has no KiteGrams RSA key" >&2; exit 1; }
+            if grep -aqE 'MIIBCgKCAQEAxF//|MIIBCgKCAQEAu\+3tv' "$LIB"; then
+              echo "FAIL: $abi lib still has Telegram RSA key" >&2
+              exit 1
+            fi
+            rm -f "$LIB"
           done
-          echo "  native libs verified"
+          echo "  native libs verified (server + RSA)"
           sha256sum "$APK" | tee SHA256SUMS.txt
 
       - name: Collect artifacts
@@ -192,6 +201,6 @@ jobs:
           gh release create "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --title "KiteGrams $APP_VERSION_NAME (JavaGram base) build${{ github.run_number }}" \
-            --notes "База: JavaGram v2.26-javagram (Telegram Android 13.1.1). Сервер: $APP_SERVER_HOST:2398. Подписан ключом KiteGrams." \
+            --notes "База: JavaGram v2.26-javagram (Telegram Android 13.1.1). Сервер: $APP_SERVER_HOST:2398. Встроенный RSA-ключ заменён на ключ KiteGrams. Подписан ключом KiteGrams." \
             "$APK_NAME" "SHA256SUMS.txt"
           echo "RELEASE_TAG=$TAG" >> "$GITHUB_OUTPUT"
