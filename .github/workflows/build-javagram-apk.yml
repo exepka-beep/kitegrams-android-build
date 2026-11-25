@@ -1,0 +1,197 @@
+name: Build KiteGrams APK (JavaGram base)
+
+# Собирает подписанный KiteGrams APK из готового JavaGram-APK Reloaded:
+# upstream — https://github.com/kariblanov-dotcom/javagram-desktop
+# base     — JavaGram-android.apk (release v2.26-javagram)
+#
+# JavaGram — мультисерверный клиент на базе Telegram Android 13.1.1. Он не
+# собирается из gradle-исходников в этом репозитории, поэтому берём готовый
+# APK, декодируем apktool-ом, применяем ребрендинг и собираем заново.
+#
+# Что меняется:
+#   - сервер 2.26.81.132:2398 -> 2.26.81.165:2398 (KiteGrams);
+#   - package org.javagram.messenger.web -> com.kitegrams.messenger;
+#   - видимый бренд JavaGram -> KiteGrams.
+# RSA-ключ сервера в APK не зашит: JavaGram запрашивает его у сервера сам.
+
+on:
+  workflow_dispatch:
+    inputs:
+      javagram_tag:
+        description: 'Тег релиза JavaGram с APK'
+        required: false
+        default: 'v2.26-javagram'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      JAVAGRAM_REPO: kariblanov-dotcom/javagram-desktop
+      JAVAGRAM_TAG: ${{ inputs.javagram_tag || 'v2.26-javagram' }}
+      APKTOOL_VERSION: '2.11.1'
+      UPSTREAM_APK_SHA256: '66ab99cef15849879b94e8804d0b36ef97ffa64a2eddd60bc20700569c74fa01'
+      APP_PACKAGE: com.kitegrams.messenger
+      APP_VERSION_NAME: '13.1.1'
+      APP_SERVER_HOST: '2.26.81.165'
+      EXPECTED_CERT_SHA256: 'B4:B1:04:63:7C:6C:1B:C3:BE:46:52:39:DA:25:E7:BB:B3:5D:72:5D:E9:28:EA:C9:7E:F0:A2:4F:E6:08:C9:1E'
+
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@v4
+
+      - name: Set up paths
+        run: |
+          set -euxo pipefail
+          echo "WORK=$RUNNER_TEMP/javagram" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/javagram"
+
+      - name: Download JavaGram APK and apktool
+        run: |
+          set -euxo pipefail
+          cd "$WORK"
+          curl -fsSL -o JavaGram-android.apk \
+            "https://github.com/$JAVAGRAM_REPO/releases/download/$JAVAGRAM_TAG/JavaGram-android.apk"
+          echo "$UPSTREAM_APK_SHA256  JavaGram-android.apk" | sha256sum -c -
+          curl -fsSL -o apktool.jar \
+            "https://github.com/iBotPeaches/Apktool/releases/download/v${APKTOOL_VERSION}/apktool_${APKTOOL_VERSION}.jar"
+          java -jar apktool.jar version
+
+      - name: Decode the APK
+        run: |
+          set -euxo pipefail
+          cd "$WORK"
+          java -jar apktool.jar d -f -o decoded JavaGram-android.apk
+
+      - name: Rebrand to KiteGrams
+        run: |
+          set -euxo pipefail
+          cd "$WORK"
+          python3 "$GITHUB_WORKSPACE/scripts/rebrand_javagram.py" decoded
+
+      - name: Rebuild the unsigned APK
+        run: |
+          set -euxo pipefail
+          cd "$WORK"
+          java -jar apktool.jar b -o KiteGrams-unsigned.apk decoded
+          ls -lh KiteGrams-unsigned.apk
+
+      - name: Install the signing keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euxo pipefail
+          if [[ -z "${KEYSTORE_B64:-}" ]]; then
+            echo "нет секрета ANDROID_KEYSTORE_BASE64" >&2
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$WORK/release.keystore"
+          test -s "$WORK/release.keystore"
+
+      - name: Align and sign
+        env:
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euxo pipefail
+          cd "$WORK"
+          if [[ -z "${KS_PASS:-}" || -z "${KS_ALIAS:-}" ]]; then
+            echo "нет секретов ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS" >&2
+            exit 1
+          fi
+          # GitHub runner поставляет Android SDK с zipalign/apksigner.
+          BT="$(dirname "$(find "$ANDROID_HOME/build-tools" -name zipalign -type f | sort -V | tail -1)")"
+          echo "build-tools: $BT"
+          "$BT/zipalign" -f -p 4 KiteGrams-unsigned.apk KiteGrams-aligned.apk
+          "$BT/apksigner" sign \
+            --ks release.keystore \
+            --ks-key-alias "$KS_ALIAS" \
+            --ks-pass "pass:$KS_PASS" \
+            --key-pass "pass:$KS_PASS" \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            --out "KiteGrams-${APP_VERSION_NAME}-javagram.apk" \
+            KiteGrams-aligned.apk
+          "$BT/apksigner" verify --verbose --print-certs \
+            "KiteGrams-${APP_VERSION_NAME}-javagram.apk"
+          SHA="$("$BT/apksigner" verify --print-certs \
+            "KiteGrams-${APP_VERSION_NAME}-javagram.apk" \
+            | grep -m1 -i 'certificate SHA-256 digest' | awk '{print $NF}')"
+          echo "сертификат APK: $SHA"
+          NORM="$(echo "$SHA" | tr -d ': ' | tr 'A-Z' 'a-z')"
+          WANT="$(echo "$EXPECTED_CERT_SHA256" | tr -d ': ' | tr 'A-Z' 'a-z')"
+          [[ "$NORM" == "$WANT" ]] || {
+            echo "FAIL: подпись не совпадает с ключом KiteGrams" >&2
+            exit 1
+          }
+
+      - name: Verify package and content
+        run: |
+          set -euxo pipefail
+          cd "$WORK"
+          APK="KiteGrams-${APP_VERSION_NAME}-javagram.apk"
+          python3 - "$APK" <<'PY'
+          import sys, zipfile, re
+          apk = sys.argv[1]
+          z = zipfile.ZipFile(apk)
+          manifest = z.read('AndroidManifest.xml')
+          if b'com.kitegrams.messenger' not in manifest:
+              # бинарный манифест stores strings in UTF-16 too
+              if 'com.kitegrams.messenger'.encode('utf-16-le') not in manifest:
+                  raise SystemExit('FAIL: package not found in manifest')
+          data = b''.join(z.read(n) for n in z.namelist() if n.endswith('.dex'))
+          for needle in [b'2.26.81.165', b'KiteGrams', b'com.kitegrams.messenger']:
+              if needle not in data and needle.decode() not in data.decode('latin1', 'ignore'):
+                  raise SystemExit('FAIL: missing ' + needle.decode())
+          for needle in [b'2.26.81.132', b'org.javagram.messenger.web', b'javagram']:
+              if needle in data:
+                  raise SystemExit('FAIL: leftover ' + needle.decode())
+          print('  package / server / branding verified')
+          PY
+          for abi in arm64-v8a armeabi-v7a x86 x86_64; do
+            unzip -p "$APK" "lib/$abi/libtmessages.49.so" | grep -aq '2.26.81.165' \
+              || { echo "FAIL: $abi lib not repointed" >&2; exit 1; }
+          done
+          echo "  native libs verified"
+          sha256sum "$APK" | tee SHA256SUMS.txt
+
+      - name: Collect artifacts
+        if: always()
+        run: |
+          set -euxo pipefail
+          OUT="$RUNNER_TEMP/artifacts"
+          mkdir -p "$OUT"
+          APK="$WORK/KiteGrams-${APP_VERSION_NAME}-javagram.apk"
+          if [[ -f "$APK" ]]; then
+            cp "$APK" "$OUT/"
+            cp "$WORK/SHA256SUMS.txt" "$OUT/" 2>/dev/null || true
+          fi
+          ls -la "$OUT"
+
+      - name: Upload the APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: KiteGrams-APK-JavaGram-${{ env.APP_VERSION_NAME }}-build${{ github.run_number }}
+          path: ${{ runner.temp }}/artifacts
+          if-no-files-found: error
+
+      - name: Publish release
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APK_NAME: KiteGrams-${{ env.APP_VERSION_NAME }}-javagram.apk
+          TAG: v${{ env.APP_VERSION_NAME }}-javagram-build${{ github.run_number }}
+        run: |
+          set -euxo pipefail
+          cd "$WORK"
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "KiteGrams $APP_VERSION_NAME (JavaGram base) build${{ github.run_number }}" \
+            --notes "База: JavaGram v2.26-javagram (Telegram Android 13.1.1). Сервер: $APP_SERVER_HOST:2398. Подписан ключом KiteGrams." \
+            "$APK_NAME" "SHA256SUMS.txt"
+          echo "RELEASE_TAG=$TAG" >> "$GITHUB_OUTPUT"
