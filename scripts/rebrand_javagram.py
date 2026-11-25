@@ -76,10 +76,9 @@ def build_rsa_pem_block(target_len):
         raise RuntimeError(f"RSA PEM target {target_len} shorter than key block {len(block)}")
     extra = target_len - len(block)
     if extra:
-        body = ""
-        for idx, line in enumerate(lines):
-            body += line + (" " * extra if idx == len(lines) - 1 else "") + "\n"
-        block = ("-----BEGIN RSA PUBLIC KEY-----\n" + body + "-----END RSA PUBLIC KEY-----").encode()
+        # Keep the PEM itself byte-clean: Telegram's native parser is stricter
+        # than OpenSSL. Pad AFTER the END marker, before the original NUL byte.
+        block = block + b" " * extra
     if len(block) != target_len:
         raise RuntimeError(f"RSA PEM length mismatch: {len(block)} != {target_len}")
     return block
