@@ -12,7 +12,9 @@ name: Build KiteGrams APK (JavaGram base)
 #   - сервер 2.26.81.132:2398 -> 2.26.81.165:2398 (KiteGrams);
 #   - package org.javagram.messenger.web -> com.kitegrams.messenger;
 #   - видимый бренд JavaGram -> KiteGrams;
-#   - встроенные RSA-ключи Telegram -> RSA-ключ KiteGrams (иначе handshake не проходит).
+#   - встроенные RSA-ключи Telegram -> RSA-ключ KiteGrams (иначе handshake не проходит);
+#   - кеш resolveWallet в JavaGram -> принудительный ре-resolve адреса получателя
+#     (иначе кнопка Send остаётся неактивной после bindings'а кошелька).
 
 on:
   workflow_dispatch:

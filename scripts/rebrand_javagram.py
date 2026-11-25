@@ -130,6 +130,42 @@ def patch_rsa_keys(path):
         raise RuntimeError(f"RSA key verification failed in {path}: {fingerprints} != {expected}")
 
 
+def patch_wallet_resolve_cache():
+    """Make wallet.resolveWallet ignore its in-memory cache when force is used.
+
+    JavaGram caches a null wallet lookup for a user forever in a process. When
+    the recipient binds a wallet later, the Money screen keeps a null address,
+    which leaves Send disabled. Telegram's obfuscated method Y(user, callback)
+    has force=true inlined but still returns from the cache before asking the
+    server. Skip that early return so every tap re-resolves the address.
+    """
+    path = os.path.join(ROOT, "smali_classes4", "org", "telegram", "ui", "Wallet", "l0.smali")
+    if not os.path.isfile(path):
+        raise RuntimeError(f"wallet smali not found: {path}")
+    with open(path, "r", encoding="utf-8") as f:
+        text = f.read()
+    changed = 0
+    for signature, old_branch in (
+        (".method public final Y(", "    if-eqz v1, :cond_1\n"),
+        (".method public final X(", "    if-eqz v2, :cond_1\n"),
+    ):
+        start = text.find(signature)
+        if start < 0:
+            raise RuntimeError(f"wallet resolve method not found: {signature}")
+        end = text.find("\n.end method", start)
+        if end < 0:
+            raise RuntimeError(f"unterminated wallet resolve method: {signature}")
+        block = text[start:end]
+        if old_branch not in block:
+            raise RuntimeError(f"cache branch not found in {signature}")
+        block = block.replace(old_branch, "    goto :cond_1\n", 1)
+        text = text[:start] + block + text[end:]
+        changed += 1
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        f.write(text)
+    print(f"  wallet address resolve cache bypassed x{changed} ({os.path.relpath(path, ROOT)})")
+
+
 def main():
     cm = os.path.join(ROOT, "smali_classes3", "org", "telegram", "tgnet", "ConnectionsManager.smali")
     print("== server address in smali ==")
@@ -170,6 +206,9 @@ def main():
     patch_text(strings, [(">javagram Beta<", ">KiteGrams Beta<")], "AppNameBeta")
     ui = os.path.join(ROOT, "smali_classes3", "org", "telegram", "ui", "bz.smali")
     patch_text(ui, [('const-string v5, "javagram"', 'const-string v5, "KiteGrams"')], "UI wordmark")
+
+    print("== wallet recipient resolution ==")
+    patch_wallet_resolve_cache()
 
     print("== localization binaries (same-length only) ==")
     assets = os.path.join(ROOT, "assets")
