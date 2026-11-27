@@ -1,0 +1,21 @@
+name: KiteGrams server — build status
+
+on:
+  workflow_dispatch:
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s' "${{ secrets.KG_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          echo "StrictHostKeyChecking no" > ~/.ssh/config
+
+      - name: Status
+        run: |
+          ssh -i ~/.ssh/id_rsa -p 2222 -o ConnectTimeout=20 root@2.26.81.165 \
+            'echo "=== done ==="; ls -l /root/kg_build.done 2>&1 || true; echo "=== log tail ==="; tail -8 /root/kg_build.log 2>&1 || true; echo "=== image ==="; docker images | grep reqpq64 || true; echo "=== container ==="; docker ps --format "{{.Names}}\t{{.Image}}\t{{.Status}}" | grep server || true'
