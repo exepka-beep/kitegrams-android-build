@@ -1,0 +1,181 @@
+name: KiteGrams server — raw MTProto probe
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s' "${{ secrets.KG_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          echo "StrictHostKeyChecking no" > ~/.ssh/config
+
+      - name: Write probe locally
+        run: |
+          cat > /tmp/probe.py <<'PY'
+          import socket, struct, os, sys, hashlib, json, base64
+
+          def der_len(b, i):
+              l = b[i]; i += 1
+              if l & 0x80:
+                  n = l & 0x7f; l = int.from_bytes(b[i:i+n], "big"); i += n
+              return l, i
+
+          def parse_key(pem):
+              lines = [x for x in pem.strip().splitlines() if not x.startswith("-----")]
+              body = "".join(lines)
+              der = base64.b64decode(body + "=" * (-len(body) % 4))
+              i = 0
+              assert der[i] == 0x30; i += 1
+              _, i = der_len(der, i)
+              assert der[i] == 0x30; i += 1
+              l, i = der_len(der, i); i += l
+              assert der[i] == 0x03; i += 1
+              l, i = der_len(der, i); i += 1
+              assert der[i] == 0x30; i += 1
+              _, i = der_len(der, i)
+              out = []
+              for _ in range(2):
+                  assert der[i] == 0x02; i += 1
+                  l, i = der_len(der, i)
+                  v = der[i:i+l]; i += l
+                  if v[0] == 0 and len(v) > 1: v = v[1:]
+                  out.append(v)
+              return out[0], out[1]
+
+          def tl_str(b):
+              n = len(b)
+              if n < 254:
+                  return bytes([n]) + b + b"\x00" * ((4 - (n + 1) % 4) % 4)
+              return bytes([0xfe, n & 0xff, (n >> 8) & 0xff, (n >> 16) & 0xff]) + b + b"\x00" * ((4 - n % 4) % 4)
+
+          def fingerprint(n, e):
+              h = hashlib.sha1(tl_str(n) + tl_str(e)).digest()
+              return struct.unpack("<Q", h[-8:])[0]
+
+          def read_exact(s, n):
+              buf = b""
+              while len(buf) < n:
+                  c = s.recv(n - len(buf))
+                  if not c:
+                      raise EOFError("eof after %d/%d bytes" % (len(buf), n))
+                  buf += c
+              return buf
+
+          def connect(host, port, transport):
+              s = socket.create_connection((host, port), timeout=10)
+              if transport == "abridged":
+                  s.sendall(b"\xef")
+              elif transport == "intermediate":
+                  s.sendall(b"\xee\xee\xee\xee")
+              elif transport == "padded":
+                  s.sendall(b"\xdd\xdd\xdd\xdd")
+              return s
+
+          def send_pkt(s, transport, body):
+              if transport == "abridged":
+                  words = (len(body) + 3) // 4
+                  if words < 127:
+                      hdr = bytes([words])
+                  else:
+                      hdr = bytes([0x7f]) + struct.pack("<I", words)[:3]
+              else:
+                  hdr = struct.pack("<I", len(body))
+              s.sendall(hdr + body)
+
+          def recv_pkt(s, transport):
+              if transport == "abridged":
+                  b = read_exact(s, 1)[0]
+                  if b < 127:
+                      n = b * 4
+                  else:
+                      n = int.from_bytes(read_exact(s, 3), "little") * 4
+              else:
+                  n = struct.unpack("<I", read_exact(s, 4))[0]
+              return read_exact(s, n)
+
+          def parse_respq(data):
+              cid = struct.unpack("<I", data[:4])[0]
+              out = {"constructor": "0x%08x" % cid, "len": len(data)}
+              if cid != 0x05162463:
+                  out["raw_hex"] = data[:80].hex()
+                  return out
+              i = 4
+              nonce = data[i:i+16]; i += 16
+              server_nonce = data[i:i+16]; i += 16
+              l = data[i]; i += 1
+              if l >= 254:
+                  l = int.from_bytes(data[i:i+3], "little"); i += 3
+              pq = int.from_bytes(data[i:i+l], "big"); i += l
+              i += (-(1 + l)) % 4
+              vec = struct.unpack("<I", data[i:i+4])[0]; i += 4
+              cnt = struct.unpack("<I", data[i:i+4])[0]; i += 4
+              fps = []
+              for _ in range(cnt):
+                  fps.append(struct.unpack("<Q", data[i:i+8])[0]); i += 8
+              out.update({
+                  "nonce": nonce.hex(),
+                  "server_nonce": server_nonce.hex(),
+                  "pq": str(pq),
+                  "pq_bytes": l,
+                  "vector_ctor": "0x%08x" % vec,
+                  "fingerprints": ["%016x" % f for f in fps],
+                  "fingerprints_raw": fps,
+                  "trailing": len(data) - i,
+              })
+              return out
+
+          host = sys.argv[1] if len(sys.argv) > 1 else "127.0.0.1"
+          port = int(sys.argv[2]) if len(sys.argv) > 2 else 2398
+          pem = open("/tmp/kgkey.pem").read()
+          n, e = parse_key(pem)
+          my_fp = fingerprint(n, e)
+          print("key: bits=%d e=%d computed_fingerprint=%016x" % (len(n)*8, int.from_bytes(e, "big"), my_fp))
+
+          for tr in ("abridged", "intermediate", "padded"):
+              print("\n=== transport: %s ===" % tr)
+              try:
+                  s = connect(host, port, tr)
+                  nonce = os.urandom(16)
+                  send_pkt(s, tr, struct.pack("<I", 0xbe7e8ef1) + nonce)
+                  data = recv_pkt(s, tr)
+                  info = parse_respq(data)
+                  info["nonce_matches"] = info.get("nonce") == nonce.hex()
+                  info["server_fp_matches_key"] = my_fp in info.get("fingerprints_raw", [])
+                  print(json.dumps(info, indent=2))
+                  s.close()
+              except Exception as ex:
+                  print("FAILED: %s: %s" % (type(ex).__name__, ex))
+          PY
+          python3 -c "compile(open('/tmp/probe.py').read(),'p','exec')" && echo "probe syntax ok"
+          base64 -w0 /tmp/probe.py > /tmp/probe.b64
+          wc -c /tmp/probe.b64
+
+      - name: Upload probe and run
+        run: |
+          SSH="ssh -i ~/.ssh/id_rsa -p 2222 -o ConnectTimeout=20 root@2.26.81.165"
+          B64=$(cat /tmp/probe.b64)
+          $SSH "printf '%s' '$B64' | base64 -d > /tmp/probe.py; wc -c /tmp/probe.py"
+
+      - name: Run on server
+        run: |
+          SSH="ssh -i ~/.ssh/id_rsa -p 2222 -o ConnectTimeout=20 root@2.26.81.165"
+          $SSH 'bash -s' <<'EOF'
+          set +e
+          echo "=== ports ==="
+          docker port kitegrams-main-server-1 2>/dev/null
+          echo "=== patch markers ==="
+          grep -n "RandInt128\|maxHandshakeReqPQ =" /root/gramsrv-src/internal/mtprotoedge/exchange_compat.go /root/gramsrv-src/internal/mtprotoedge/exchange.go 2>/dev/null
+          echo "=== running image ==="
+          docker ps --format '{{.Names}} {{.Image}} {{.Status}}' | grep server
+          echo "=== key ==="
+          curl -fsS http://127.0.0.1:2398/owpengram/server-info | python3 -c 'import sys,json; print(json.load(sys.stdin)["rsa_public_key_pem"], end="")' > /tmp/kgkey.pem
+          head -1 /tmp/kgkey.pem
+          echo "=== probe ==="
+          python3 /tmp/probe.py 127.0.0.1 2398
+          EOF
