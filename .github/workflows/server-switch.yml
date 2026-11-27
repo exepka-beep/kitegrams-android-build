@@ -1,0 +1,33 @@
+name: KiteGrams server — recreate container
+
+on:
+  workflow_dispatch:
+
+jobs:
+  switch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s' "${{ secrets.KG_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          echo "StrictHostKeyChecking no" > ~/.ssh/config
+
+      - name: Recreate server
+        run: |
+          ssh -i ~/.ssh/id_rsa -p 2222 -o ConnectTimeout=20 root@2.26.81.165 'bash -s' <<'EOF'
+          set -e
+          cd /root/gramsrv-src/deploy/docker
+          grep -n "^TELESRV_IMAGE_TAG=" .env
+          docker compose up -d --force-recreate server
+          sleep 6
+          echo "=== container ==="
+          docker ps --format "{{.Names}}\t{{.Image}}\t{{.Status}}" | grep server
+          echo "=== server-info ==="
+          curl -fsS http://127.0.0.1:2398/owpengram/server-info | head -c 200
+          echo
+          echo "=== log ==="
+          docker logs --tail 30 kitegrams-main-server-1 2>&1
+          EOF
