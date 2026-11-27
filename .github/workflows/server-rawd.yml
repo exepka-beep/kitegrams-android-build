@@ -1,0 +1,27 @@
+name: KiteGrams server — raw log dump
+
+on:
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: "How many seconds of log to dump"
+        required: false
+        default: "20"
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s' "${{ secrets.KG_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          echo "StrictHostKeyChecking no" > ~/.ssh/config
+
+      - name: Dump
+        run: |
+          SSH="ssh -i ~/.ssh/id_rsa -p 2222 -o ConnectTimeout=20 root@2.26.81.165"
+          SECS="${{ inputs.seconds }}"
+          $SSH "docker logs --since ${SECS}s kitegrams-main-server-1 2>&1 | tail -120"
