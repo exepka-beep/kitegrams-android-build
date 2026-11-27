@@ -1,0 +1,31 @@
+name: KiteGrams server — handshake counts
+
+on:
+  workflow_dispatch:
+
+jobs:
+  logs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s' "${{ secrets.KG_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          echo "StrictHostKeyChecking no" > ~/.ssh/config
+
+      - name: Counts in 19:15-19:40 UTC
+        run: |
+          ssh -i ~/.ssh/id_rsa -p 2222 -o ConnectTimeout=20 root@2.26.81.165 \
+            'docker logs --since 2026-11-27T19:15:00 --until 2026-11-27T19:40:00 kitegrams-main-server-1 2>&1 | grep -cE "ReqPQ|req_pq"; echo "---sendCode---"; docker logs --since 2026-11-27T19:15:00 --until 2026-11-27T19:40:00 kitegrams-main-server-1 2>&1 | grep -cE "auth.sendCode|sendCode"'
+
+      - name: Last handshake lines
+        run: |
+          ssh -i ~/.ssh/id_rsa -p 2222 -o ConnectTimeout=20 root@2.26.81.165 \
+            'docker logs --since 2026-11-27T19:15:00 --until 2026-11-27T19:40:00 kitegrams-main-server-1 2>&1 | grep -E "ReqPQ|req_pq|DhGen|bindTempAuthKey|auth.sendCode|sendCode" | tail -30'
+
+      - name: Old IP activity
+        run: |
+          ssh -i ~/.ssh/id_rsa -p 2222 -o ConnectTimeout=20 root@2.26.81.165 \
+            'docker logs --since 2026-11-27T19:15:00 --until 2026-11-27T19:40:00 kitegrams-main-server-1 2>&1 | grep "185.191.238.38" | tail -20'
