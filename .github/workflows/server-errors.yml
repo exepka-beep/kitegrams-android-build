@@ -1,0 +1,36 @@
+name: KiteGrams server — error tally
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s' "${{ secrets.KG_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          echo "StrictHostKeyChecking no" > ~/.ssh/config
+
+      - name: Tally
+        run: |
+          ssh -i ~/.ssh/id_rsa -p 2222 -o ConnectTimeout=20 root@2.26.81.165 'bash -s' <<'EOF'
+          set +e
+          LOG=/tmp/kg_10m.log
+          docker logs --since 10m kitegrams-main-server-1 > $LOG 2>&1
+          echo "=== lines: $(wc -l < $LOG) ==="
+          echo "=== error tally ==="
+          grep -o '"error": "[^"]*"' $LOG | sort | uniq -c | sort -rn | head -25
+          echo "=== counters ==="
+          for pat in "Received client ReqPqMultiRequest" "Received ReqPQ again" "Received client ReqDHParamsRequest" "Sending DhGenOk" "Key exchange completed" "Key exchange aborted" "Key exchange rejected"; do
+            printf '%-42s %s\n' "$pat" "$(grep -c "$pat" $LOG)"
+          done
+          echo "=== repo ==="
+          git -C /root/gramsrv-src remote -v | head -2
+          git -C /root/gramsrv-src log --oneline -3
+          echo "=== docs ==="
+          ls /root/gramsrv-src/docs/ 2>/dev/null | head -20
+          EOF
