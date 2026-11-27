@@ -1,0 +1,31 @@
+name: KiteGrams server — login attempt 20:00 UTC
+
+on:
+  workflow_dispatch:
+
+jobs:
+  logs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s' "${{ secrets.KG_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          echo "StrictHostKeyChecking no" > ~/.ssh/config
+
+      - name: Counts
+        run: |
+          ssh -i ~/.ssh/id_rsa -p 2222 -o ConnectTimeout=20 root@2.26.81.165 \
+            'docker logs --since 2026-11-27T20:00:00 --until 2026-11-27T20:06:00 kitegrams-main-server-1 2>&1 | grep -cE "Received ReqPQ again" || true; echo "---sendCode---"; docker logs --since 2026-11-27T20:00:00 --until 2026-11-27T20:06:00 kitegrams-main-server-1 2>&1 | grep -cE "auth.sendCode|sendCode" || true; echo "---ReqDH---"; docker logs --since 2026-11-27T20:00:00 --until 2026-11-27T20:06:00 kitegrams-main-server-1 2>&1 | grep -cE "Received client ReqDHParamsRequest" || true'
+
+      - name: Handshake lines
+        run: |
+          ssh -i ~/.ssh/id_rsa -p 2222 -o ConnectTimeout=20 root@2.26.81.165 \
+            'docker logs --since 2026-11-27T20:00:00 --until 2026-11-27T20:06:00 kitegrams-main-server-1 2>&1 | grep -E "Received ReqPQ again|Sending ResPQ|Received client ReqDHParamsRequest|Sending DhGenOk|bindTempAuthKey|auth.sendCode|INPUT_REQUEST" | tail -60'
+
+      - name: New connections
+        run: |
+          ssh -i ~/.ssh/id_rsa -p 2222 -o ConnectTimeout=20 root@2.26.81.165 \
+            'docker logs --since 2026-11-27T20:00:00 --until 2026-11-27T20:06:00 kitegrams-main-server-1 2>&1 | grep "Connection intake" | grep "raw_accept" | tail -20'
