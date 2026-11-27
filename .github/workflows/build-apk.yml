@@ -218,6 +218,26 @@ jobs:
           }
           grep -n 'XTREE_PAYMENTS_DISABLED' "$PAY"
 
+      - name: Verify JavaGram Money section overlay
+        run: |
+          set -euxo pipefail
+          # Раздел «Деньги» перенесён из JavaGram v2.26-javagram в рабочий
+          # 12.10.2-конвейер. Проверяем и код экрана, и ресурсы: если overlay
+          # частично не наложился, сборка упадёт здесь, а не на телефоне.
+          WALLET="$BUILD_DIR/TMessagesProj/src/main/java/org/telegram/ui/Wallet/WalletActivity.java"
+          test -f "$WALLET"
+          grep -q 'R.drawable.jg_wallet_card_diamond' "$WALLET"
+          grep -q 'R.drawable.jg_wallet_transaction_topup' "$WALLET"
+          grep -q 'R.drawable.jg_wallet_transfer' "$WALLET"
+          for res in \
+            jg_wallet_card_diamond jg_wallet_card_qr jg_wallet_gram_14 \
+            jg_wallet_gram_small jg_wallet_nft jg_wallet_currency_exchange \
+            jg_wallet_transaction_in jg_wallet_transaction_out \
+            jg_wallet_transaction_topup jg_wallet_transfer; do
+            find "$BUILD_DIR/TMessagesProj/src/main/res" -type f \( -name "$res.xml" -o -name "$res.png" \) | grep -q .
+          done
+          echo "JavaGram Money section overlay verified"
+
       - name: Fetch the server RSA public key
         run: |
           set -euxo pipefail

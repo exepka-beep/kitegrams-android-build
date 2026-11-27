@@ -1,5 +1,6 @@
 /*
  * KiteGrams — превью карточки «Деньги» как в профиле Telegram.
+ * Карточка использует ресурсы раз Money из JavaGram v2.26-javagram.
  */
 package org.telegram.ui.Wallet;
 
