@@ -1,0 +1,22 @@
+name: KiteGrams server — fresh nonce per req_pq
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s' "${{ secrets.KG_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          echo "StrictHostKeyChecking no" > ~/.ssh/config
+
+      - name: Patch exchange_compat.go
+        run: |
+          B64='aW1wb3J0IHN5cwpwID0gIi9yb290L2dyYW1zcnYtc3JjL2ludGVybmFsL210cHJvdG9lZGdlL2V4Y2hhbmdlX2NvbXBhdC5nbyIKcyA9IG9wZW4ocCwgZW5jb2Rpbmc9InV0Zi04IikucmVhZCgpCm9sZCA9ICIiIgljYXNlIG10LlJlcVBxUmVxdWVzdFR5cGVJRCwgbXQuUmVxUHFNdWx0aVJlcXVlc3RUeXBlSUQ6CgkJcy5sb2cuRGVidWcoIlJlY2VpdmVkIFJlcVBRIGFnYWluIikKCQlyZXEgPSBkaFBhcmFtcy5SZXEKCQlnb3RvIFNlbmRSZXNQUQoiIiIKbmV3ID0gIiIiCWNhc2UgbXQuUmVxUHFSZXF1ZXN0VHlwZUlELCBtdC5SZXFQcU11bHRpUmVxdWVzdFR5cGVJRDoKCQlzLmxvZy5EZWJ1ZygiUmVjZWl2ZWQgUmVxUFEgYWdhaW4iKQoJCXJlcSA9IGRoUGFyYW1zLlJlcQoJCXNlcnZlck5vbmNlLCBlcnIgPSBjcnlwdG8uUmFuZEludDEyOChzLnJhbmQpCgkJaWYgZXJyICE9IG5pbCB7CgkJCXJldHVybiBleGNoYW5nZS5TZXJ2ZXJFeGNoYW5nZVJlc3VsdHt9LCBnb2Zhc3Rlci5XcmFwKGVyciwgImdlbmVyYXRlIHNlcnZlciBub25jZSIpCgkJfQoJCXBxLCBlcnIgPSBzLnJuZy5QUSgpCgkJaWYgZXJyICE9IG5pbCB7CgkJCXJldHVybiBleGNoYW5nZS5TZXJ2ZXJFeGNoYW5nZVJlc3VsdHt9LCBnb2Zhc3Rlci5XcmFwKGVyciwgImdlbmVyYXRlIHBxIikKCQl9CgkJZ290byBTZW5kUmVzUFEKIiIiCmlmICJzZXJ2ZXJOb25jZSwgZXJyID0gY3J5cHRvLlJhbmRJbnQxMjgocy5yYW5kKSIgaW4gczoKICAgIHByaW50KCJhbHJlYWR5IHBhdGNoZWQiKQogICAgc3lzLmV4aXQoMCkKaWYgb2xkIG5vdCBpbiBzOgogICAgcHJpbnQoInRhcmdldCBibG9jayBub3QgZm91bmQiKQogICAgc3lzLmV4aXQoMikKcyA9IHMucmVwbGFjZShvbGQsIG5ldywgMSkKb3BlbihwLCAidyIsIGVuY29kaW5nPSJ1dGYtOCIpLndyaXRlKHMpCnByaW50KCJwYXRjaGVkIikK'
+          ssh -i ~/.ssh/id_rsa -p 2222 -o ConnectTimeout=20 root@2.26.81.165 \
+            "echo '$B64' | base64 -d | python3; echo '---'; grep -n -A12 'Received ReqPQ again' /root/gramsrv-src/internal/mtprotoedge/exchange_compat.go"
