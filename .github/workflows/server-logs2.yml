@@ -1,0 +1,36 @@
+name: KiteGrams server — quick login logs
+
+on:
+  workflow_dispatch:
+
+jobs:
+  logs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s' "${{ secrets.KG_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          echo "StrictHostKeyChecking no" > ~/.ssh/config
+
+      - name: Container and tag
+        run: |
+          ssh -i ~/.ssh/id_rsa -p 2222 -o ConnectTimeout=20 root@2.26.81.165 \
+            'docker ps --format "{{.Names}}\t{{.Image}}\t{{.Status}}" | grep server; grep -n "^TELESRV_IMAGE_TAG=" /root/gramsrv-src/deploy/docker/.env'
+
+      - name: Handshake events
+        run: |
+          ssh -i ~/.ssh/id_rsa -p 2222 -o ConnectTimeout=20 root@2.26.81.165 \
+            'docker logs --tail 3000 kitegrams-main-server-1 2>&1 | grep -Ei "Received ReqPQ again|Key exchange aborted|too many req_pq|Received client ReqDHParamsRequest|Sending DhGenOk|bindTempAuthKey|auth.sendCode|send_code|INPUT_REQUEST_INVALID|exact admission|unsupported exact" | tail -80'
+
+      - name: JavaGram profiles
+        run: |
+          ssh -i ~/.ssh/id_rsa -p 2222 -o ConnectTimeout=20 root@2.26.81.165 \
+            'docker logs --tail 1000 kitegrams-main-server-1 2>&1 | grep -E "13\.1\.1|profile\": 23[0-9]|client_type\": \"unknown" | tail -40'
+
+      - name: Last lines
+        run: |
+          ssh -i ~/.ssh/id_rsa -p 2222 -o ConnectTimeout=20 root@2.26.81.165 \
+            'docker logs --tail 30 kitegrams-main-server-1 2>&1'
