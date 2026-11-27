@@ -1,0 +1,36 @@
+name: KiteGrams server — inspect login logs
+
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "Сколько последних минут логов смотреть"
+        required: false
+        default: "15"
+
+jobs:
+  logs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s' "${{ secrets.KG_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          echo "StrictHostKeyChecking no" > ~/.ssh/config
+
+      - name: Read login-related logs
+        run: |
+          ssh -i ~/.ssh/id_rsa -p 2222 -o ConnectTimeout=20 root@2.26.81.165 'bash -s' <<'EOF'
+          echo "=== container ==="
+          docker ps --format "{{.Names}}\t{{.Image}}\t{{.Status}}" | grep server
+          echo "=== env tag ==="
+          grep -n "^TELESRV_IMAGE_TAG=" /root/gramsrv-src/deploy/docker/.env
+          echo "=== handshake / sendCode ==="
+          docker logs --since ${{ github.event.inputs.minutes }}m kitegrams-main-server-1 2>&1 \
+            | grep -Ei "Received ReqPQ again|Key exchange aborted|too many req_pq|Received client ReqDHParamsRequest|Sending DhGenOk|bindTempAuthKey|auth.sendCode|send_code|INPUT_REQUEST_INVALID|exact admission|unsupported exact|profile\": 23" \
+            | tail -150
+          echo "=== last lines ==="
+          docker logs --since ${{ github.event.inputs.minutes }}m kitegrams-main-server-1 2>&1 | tail -40
+          EOF
