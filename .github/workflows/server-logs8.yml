@@ -1,0 +1,31 @@
+name: KiteGrams server — one-pass login window
+
+on:
+  workflow_dispatch:
+
+jobs:
+  logs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s' "${{ secrets.KG_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          echo "StrictHostKeyChecking no" > ~/.ssh/config
+
+      - name: One-pass window
+        run: |
+          ssh -i ~/.ssh/id_rsa -p 2222 -o ConnectTimeout=20 root@2.26.81.165 'bash -s' <<'EOF'
+          docker logs --since 2026-11-27T20:03:00 --until 2026-11-27T20:04:30 kitegrams-main-server-1 2>&1 | awk '
+          /Received ReqPQ again/ { req++ }
+          /Sending ResPQ/ { respq++ }
+          /Received client ReqDHParamsRequest/ { dh++ }
+          /Sending DhGenOk/ { dhok++ }
+          /bindTempAuthKey/ { bind++ }
+          /auth\.sendCode|sendCode/ { sc++ }
+          /Received ReqPQ again|Sending ResPQ|Received client ReqDHParamsRequest|Sending DhGenOk|bindTempAuthKey|auth\.sendCode|INPUT_REQUEST/ { print }
+          END { print "COUNTS req="req" respq="respq" dh="dh" dhok="dhok" bind="bind" sendCode="sc }
+          '
+          EOF
