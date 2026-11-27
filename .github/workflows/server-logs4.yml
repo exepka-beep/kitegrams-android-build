@@ -1,0 +1,30 @@
+name: KiteGrams server — login window logs
+
+on:
+  workflow_dispatch:
+    inputs:
+      since:
+        description: "UTC start, e.g. 2026-11-27T19:24:00"
+        required: true
+        default: "2026-11-27T19:24:00"
+      until:
+        description: "UTC end, e.g. 2026-11-27T19:29:00"
+        required: true
+        default: "2026-11-27T19:29:00"
+
+jobs:
+  logs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s' "${{ secrets.KG_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          echo "StrictHostKeyChecking no" > ~/.ssh/config
+
+      - name: Login window
+        run: |
+          ssh -i ~/.ssh/id_rsa -p 2222 -o ConnectTimeout=20 root@2.26.81.165 \
+            'docker logs --since "${{ github.event.inputs.since }}" --until "${{ github.event.inputs.until }}" kitegrams-main-server-1 2>&1 | grep -E "req_pq|ReqPQ|ReqPq|DhGen|bindTempAuthKey|auth.sendCode|sendCode|INPUT_REQUEST|13\.1\.1|profile\": 23[23]" | tail -80'
