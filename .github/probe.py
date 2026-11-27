@@ -144,7 +144,12 @@ def unencrypted_frame(data, msg_id=None):
     """proto.UnencryptedMessage: auth_key_id=0, msg_id, length, body."""
     import time
     if msg_id is None:
-        msg_id = int(time.time()) << 32  # divisible by 4, as client ids must be
+        now = time.time()
+        sec = int(now)
+        # Client ids must be positive, divisible by 4, and have a non-zero low
+        # 32 bits (the sub-second part) -- mtprotoedge rejects all-zero ones.
+        frac = int((now - sec) * (1 << 32)) & 0xFFFFFFFC
+        msg_id = (sec << 32) | (frac or 4)
     return struct.pack("<qqi", 0, msg_id, len(data)) + data
 
 
