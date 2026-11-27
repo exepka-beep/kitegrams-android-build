@@ -322,6 +322,12 @@ def load_pem(port):
         return json.load(r)["rsa_public_key_pem"]
 
 
+def public_view(info):
+    """JSON-safe copy: drop bytes-valued internals and the raw fingerprint list."""
+    return {k: v for k, v in info.items()
+            if not k.startswith("_") and k != "fingerprints_raw"}
+
+
 def main():
     host = sys.argv[1] if len(sys.argv) > 1 else "127.0.0.1"
     port = int(sys.argv[2]) if len(sys.argv) > 2 else 2398
@@ -346,8 +352,7 @@ def main():
             info = parse_respq(data)
             info["nonce_matches"] = info.get("nonce") == nonce.hex()
             info["server_fp_matches_key"] = my_fp in info.get("fingerprints_raw", [])
-            info.pop("fingerprints_raw", None)
-            print("ResPQ:", json.dumps(info, indent=2))
+            print("ResPQ:", json.dumps(public_view(info), indent=2))
 
             if info["constructor"] != "0x05162463":
                 s.close()
@@ -358,11 +363,7 @@ def main():
             send_pkt(s, tr, unencrypted_frame(struct.pack("<I", 0xBE7E8EF1) + nonce2))
             d2 = unwrap_unencrypted(recv_pkt(s, tr))
             i2 = parse_respq(d2)
-            i2.pop("fingerprints_raw", None)
-            i2.pop("_nonce", None)
-            i2.pop("_server_nonce", None)
-            i2.pop("_pq", None)
-            print("2nd ResPQ:", json.dumps(i2, indent=2))
+            print("2nd ResPQ:", json.dumps(public_view(i2), indent=2))
             print("pq_changed_on_repeat:", i2.get("pq") != info.get("pq"))
 
             # Continue the real handshake on a fresh connection.
