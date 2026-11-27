@@ -23,7 +23,7 @@ jobs:
           set -e
           cd /root/gramsrv-src
           rm -f /tmp/kgsrc.tgz /tmp/kgsrc.done
-          tar -czf /tmp/kgsrc.tgz Dockerfile.reqpq64 go.mod go.sum cmd internal deploy
+          tar -czf /tmp/kgsrc.tgz Dockerfile.reqpq64 go.mod go.sum cmd internal deploy data
           touch /tmp/kgsrc.done
           EOF
           $SSH 'chmod +x /tmp/kg_tar.sh && nohup /tmp/kg_tar.sh >/tmp/kgsrc.log 2>&1 & echo started'
