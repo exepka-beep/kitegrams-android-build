@@ -18,7 +18,7 @@ jobs:
       - name: Counts in 19:15-19:40 UTC
         run: |
           ssh -i ~/.ssh/id_rsa -p 2222 -o ConnectTimeout=20 root@2.26.81.165 \
-            'docker logs --since 2026-11-27T19:15:00 --until 2026-11-27T19:40:00 kitegrams-main-server-1 2>&1 | grep -cE "ReqPQ|req_pq"; echo "---sendCode---"; docker logs --since 2026-11-27T19:15:00 --until 2026-11-27T19:40:00 kitegrams-main-server-1 2>&1 | grep -cE "auth.sendCode|sendCode"'
+            'docker logs --since 2026-11-27T19:15:00 --until 2026-11-27T19:40:00 kitegrams-main-server-1 2>&1 | grep -cE "ReqPQ|req_pq" || true; echo "---sendCode---"; docker logs --since 2026-11-27T19:15:00 --until 2026-11-27T19:40:00 kitegrams-main-server-1 2>&1 | grep -cE "auth.sendCode|sendCode" || true'
 
       - name: Last handshake lines
         run: |
