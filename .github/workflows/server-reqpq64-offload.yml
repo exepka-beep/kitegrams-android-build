@@ -1,0 +1,60 @@
+name: KiteGrams server — reqpq64 (offload build)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s' "${{ secrets.KG_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          echo "StrictHostKeyChecking no" > ~/.ssh/config
+
+      - name: Copy server source to runner
+        run: |
+          ssh -i ~/.ssh/id_rsa -p 2222 root@2.26.81.165 \
+            'cd /root/gramsrv-src && tar --exclude=.git -czf /tmp/gramsrv-src.tgz .'
+          scp -i ~/.ssh/id_rsa -P 2222 root@2.26.81.165:/tmp/gramsrv-src.tgz /tmp/gramsrv-src.tgz
+          mkdir -p /tmp/gramsrv-src
+          tar -xzf /tmp/gramsrv-src.tgz -C /tmp/gramsrv-src
+          test -f /tmp/gramsrv-src/Dockerfile.reqpq64
+          grep -n "maxHandshakeReqPQ = 64" /tmp/gramsrv-src/internal/mtprotoedge/exchange.go
+
+      - name: Build image on runner
+        run: |
+          cd /tmp/gramsrv-src
+          DOCKER_BUILDKIT=0 docker build -f Dockerfile.reqpq64 --target server \
+            --build-arg VCS_REF=reqpq64 \
+            --build-arg VCS_BRANCH=main \
+            --build-arg VCS_TREE_STATE=clean \
+            --build-arg BUILD_DATE=2026-11-27 \
+            -t kitegrams/server:reqpq64 .
+
+      - name: Transfer image to server
+        run: |
+          docker save kitegrams/server:reqpq64 | gzip -1 | \
+            ssh -i ~/.ssh/id_rsa -p 2222 root@2.26.81.165 'docker load'
+
+      - name: Switch server to reqpq64
+        run: |
+          ssh -i ~/.ssh/id_rsa -p 2222 root@2.26.81.165 'bash -s' <<'EOF'
+          set -e
+          cd /root/gramsrv-src/deploy/docker
+          cp -n .env .env.bak-reqpq64 || true
+          sed -i "s/^TELESRV_IMAGE_TAG=.*/TELESRV_IMAGE_TAG=reqpq64/" .env
+          grep -n "^TELESRV_IMAGE_TAG=" .env
+          docker compose up -d --force-recreate server
+          sleep 6
+          echo "=== container ==="
+          docker ps --format "{{.Names}}\t{{.Image}}\t{{.Status}}" | grep server
+          echo "=== server-info ==="
+          curl -fsS http://127.0.0.1:2398/owpengram/server-info | head -c 300
+          echo
+          echo "=== recent log ==="
+          docker logs --tail 60 kitegrams-main-server-1 2>&1 | tail -40
+          EOF
