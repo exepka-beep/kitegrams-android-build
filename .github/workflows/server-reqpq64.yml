@@ -1,0 +1,46 @@
+name: KiteGrams server — apply req_pq cap 64
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s' "${{ secrets.KG_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      - name: Build and switch server to reqpq64
+        run: |
+          ssh -i ~/.ssh/id_rsa -p 2222 -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@2.26.81.165 'bash -s' <<'EOF'
+          set -e
+          cd /root/gramsrv-src
+          echo "=== patch state ==="
+          grep -n "maxHandshakeReqPQ" internal/mtprotoedge/exchange.go
+          test -f Dockerfile.reqpq64
+          echo "=== build reqpq64 image ==="
+          DOCKER_BUILDKIT=0 docker build -f Dockerfile.reqpq64 --target server \
+            --build-arg VCS_REF=reqpq64 \
+            --build-arg VCS_BRANCH=main \
+            --build-arg VCS_TREE_STATE=clean \
+            --build-arg BUILD_DATE=2026-11-27 \
+            -t kitegrams/server:reqpq64 .
+          echo "=== switch compose tag ==="
+          cd deploy/docker
+          cp -n .env .env.bak-reqpq64 || true
+          sed -i "s/^TELESRV_IMAGE_TAG=.*/TELESRV_IMAGE_TAG=reqpq64/" .env
+          grep -n "^TELESRV_IMAGE_TAG=" .env
+          docker compose up -d --force-recreate server
+          sleep 6
+          echo "=== container ==="
+          docker ps --format "{{.Names}}\t{{.Image}}\t{{.Status}}" | grep server
+          echo "=== server-info ==="
+          curl -fsS http://127.0.0.1:2398/owpengram/server-info | head -c 300
+          echo
+          echo "=== recent server log ==="
+          docker logs --tail 80 kitegrams-main-server-1 2>&1 | tail -50
+          EOF
