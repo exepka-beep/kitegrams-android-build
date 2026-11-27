@@ -1,0 +1,75 @@
+name: KiteGrams server — reqpq64 (detached build)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s' "${{ secrets.KG_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          echo "StrictHostKeyChecking no" > ~/.ssh/config
+
+      - name: Write build script on server
+        run: |
+          SSH="ssh -i ~/.ssh/id_rsa -p 2222 -o ConnectTimeout=20 root@2.26.81.165"
+          $SSH 'cat > /root/kg_build.sh' <<'EOF'
+          #!/bin/bash
+          set -e
+          cd /root/gramsrv-src
+          rm -f /root/kg_build.done
+          DOCKER_BUILDKIT=0 docker build -f Dockerfile.reqpq64 --target server \
+            --build-arg VCS_REF=reqpq64 \
+            --build-arg VCS_BRANCH=main \
+            --build-arg VCS_TREE_STATE=clean \
+            --build-arg BUILD_DATE=2026-11-27 \
+            -t kitegrams/server:reqpq64 . > /root/kg_build.log 2>&1
+          echo DONE > /root/kg_build.done
+          EOF
+          $SSH 'chmod +x /root/kg_build.sh'
+
+      - name: Start detached build
+        run: |
+          SSH="ssh -i ~/.ssh/id_rsa -p 2222 -o ConnectTimeout=20 root@2.26.81.165"
+          $SSH 'rm -f /root/kg_build.done /root/kg_build.log; nohup setsid /root/kg_build.sh >/dev/null 2>&1 & echo started'
+
+      - name: Wait for build
+        run: |
+          SSH="ssh -i ~/.ssh/id_rsa -p 2222 -o ConnectTimeout=20 root@2.26.81.165"
+          READY=WAIT
+          for i in $(seq 1 80); do
+            READY=$($SSH 'test -f /root/kg_build.done && echo READY || echo WAIT' 2>/dev/null || echo WAIT)
+            echo "build: $READY"
+            [ "$READY" = READY ] && break
+            if [ $((i % 4)) -eq 0 ]; then
+              $SSH 'tail -3 /root/kg_build.log 2>/dev/null' || true
+            fi
+            sleep 30
+          done
+          test "$READY" = READY
+          $SSH 'tail -12 /root/kg_build.log'
+
+      - name: Switch server to reqpq64
+        run: |
+          SSH="ssh -i ~/.ssh/id_rsa -p 2222 -o ConnectTimeout=20 root@2.26.81.165"
+          $SSH 'bash -s' <<'EOF'
+          set -e
+          cd /root/gramsrv-src/deploy/docker
+          cp -n .env .env.bak-reqpq64 || true
+          sed -i "s/^TELESRV_IMAGE_TAG=.*/TELESRV_IMAGE_TAG=reqpq64/" .env
+          grep -n "^TELESRV_IMAGE_TAG=" .env
+          docker compose up -d --force-recreate server
+          sleep 6
+          echo "=== container ==="
+          docker ps --format "{{.Names}}\t{{.Image}}\t{{.Status}}" | grep server
+          echo "=== server-info ==="
+          curl -fsS http://127.0.0.1:2398/owpengram/server-info | head -c 300
+          echo
+          echo "=== recent log ==="
+          docker logs --tail 60 kitegrams-main-server-1 2>&1 | tail -40
+          EOF
