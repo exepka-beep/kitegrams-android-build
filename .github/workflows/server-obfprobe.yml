@@ -1,0 +1,25 @@
+name: KiteGrams server — obfuscated transport probe
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install crypto
+        run: pip install pycryptodome
+
+      - name: Fetch server key
+        run: |
+          curl -fsS --max-time 20 http://2.26.81.165:2398/owpengram/server-info \
+            | python3 -c 'import sys,json; print(json.load(sys.stdin)["rsa_public_key_pem"], end="")' \
+            > /tmp/kgkey.pem
+          head -1 /tmp/kgkey.pem
+          wc -c /tmp/kgkey.pem
+
+      - name: Probe
+        run: python3 .github/obfprobe.py 2.26.81.165 2398
