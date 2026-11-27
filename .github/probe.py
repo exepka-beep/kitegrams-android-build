@@ -140,6 +140,23 @@ HEADERS = {
 }
 
 
+def unencrypted_frame(data, msg_id=None):
+    """proto.UnencryptedMessage: auth_key_id=0, msg_id, length, body."""
+    import time
+    if msg_id is None:
+        msg_id = int(time.time()) << 32  # divisible by 4, as client ids must be
+    return struct.pack("<qqi", 0, msg_id, len(data)) + data
+
+
+def unwrap_unencrypted(data):
+    """Strip the UnencryptedMessage envelope when present."""
+    if len(data) >= 20 and data[:8] == b"\x00" * 8:
+        n = struct.unpack("<i", data[16:20])[0]
+        if 0 < n <= len(data) - 20:
+            return data[20:20 + n]
+    return data
+
+
 def read_exact(s, n):
     buf = b""
     while len(buf) < n:
@@ -319,8 +336,8 @@ def main():
             s.sendall(HEADERS[tr])
 
             nonce = os.urandom(16)
-            send_pkt(s, tr, struct.pack("<I", 0xBE7E8EF1) + nonce)
-            data = recv_pkt(s, tr)
+            send_pkt(s, tr, unencrypted_frame(struct.pack("<I", 0xBE7E8EF1) + nonce))
+            data = unwrap_unencrypted(recv_pkt(s, tr))
             info = parse_respq(data)
             info["nonce_matches"] = info.get("nonce") == nonce.hex()
             info["server_fp_matches_key"] = my_fp in info.get("fingerprints_raw", [])
@@ -333,8 +350,8 @@ def main():
 
             # Second ReqPQ on the same connection exercises the "again" branch.
             nonce2 = os.urandom(16)
-            send_pkt(s, tr, struct.pack("<I", 0xBE7E8EF1) + nonce2)
-            d2 = recv_pkt(s, tr)
+            send_pkt(s, tr, unencrypted_frame(struct.pack("<I", 0xBE7E8EF1) + nonce2))
+            d2 = unwrap_unencrypted(recv_pkt(s, tr))
             i2 = parse_respq(d2)
             i2.pop("fingerprints_raw", None)
             i2.pop("_nonce", None)
@@ -356,13 +373,13 @@ def main():
                 s2 = socket.create_connection((host, port), timeout=10)
                 s2.sendall(HEADERS[tr])
                 nn = os.urandom(16)
-                send_pkt(s2, tr, struct.pack("<I", 0xBE7E8EF1) + nn)
-                r2 = parse_respq(recv_pkt(s2, tr))
+                send_pkt(s2, tr, unencrypted_frame(struct.pack("<I", 0xBE7E8EF1) + nn))
+                r2 = parse_respq(unwrap_unencrypted(recv_pkt(s2, tr)))
                 r2["_p"], r2["_q"] = factors[0], factors[1]
                 body, new_nonce = req_dh_params_body(n, e, r2, dc_id=2, use_dc=use_dc)
-                send_pkt(s2, tr, body)
+                send_pkt(s2, tr, unencrypted_frame(body))
                 try:
-                    resp = recv_pkt(s2, tr)
+                    resp = unwrap_unencrypted(recv_pkt(s2, tr))
                     print("req_DH_params(use_dc=%s) -> %s"
                           % (use_dc, json.dumps(parse_dh_params(resp))))
                 except Exception as ex:

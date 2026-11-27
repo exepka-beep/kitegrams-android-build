@@ -44,4 +44,6 @@ jobs:
           python3 /tmp/probe.py 127.0.0.1 2398 abridged
           echo "=== probe (intermediate) ==="
           python3 /tmp/probe.py 127.0.0.1 2398 intermediate
+          echo "=== probe (padded) ==="
+          python3 /tmp/probe.py 127.0.0.1 2398 padded
           EOF
