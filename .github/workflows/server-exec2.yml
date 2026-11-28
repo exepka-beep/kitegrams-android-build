@@ -1,0 +1,32 @@
+name: KiteGrams server — exec long
+
+on:
+  workflow_dispatch:
+    inputs:
+      script:
+        description: "bash script, runs on the server via stdin"
+        required: true
+        default: |
+          set +e
+          hostname
+          uptime
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s' "${{ secrets.KG_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          echo "StrictHostKeyChecking no" > ~/.ssh/config
+
+      - name: Run
+        env:
+          SCRIPT: ${{ github.event.inputs.script }}
+        run: |
+          printf '%s\n' "$SCRIPT" > /tmp/remote.sh
+          ssh -i ~/.ssh/id_rsa -p 2222 -o ConnectTimeout=90 -o ServerAliveInterval=30 -o ServerAliveCountMax=6 \
+            root@2.26.81.165 'bash -s' < /tmp/remote.sh
