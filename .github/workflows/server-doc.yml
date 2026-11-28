@@ -1,0 +1,31 @@
+name: KiteGrams server — compat notes
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s' "${{ secrets.KG_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          echo "StrictHostKeyChecking no" > ~/.ssh/config
+
+      - name: Read notes
+        run: |
+          ssh -i ~/.ssh/id_rsa -p 2222 -o ConnectTimeout=20 root@2.26.81.165 'bash -s' <<'EOF'
+          set +e
+          echo "=== compat notes ==="
+          cat /root/gramsrv-src/docs/client-compat-notes.md 2>/dev/null | head -180
+          echo "=== image + container ==="
+          docker ps --format '{{.Names}} {{.Image}} {{.CreatedAt}}' | grep -i server
+          echo "=== src git ==="
+          git -C /root/gramsrv-src status -sb | head -5
+          git -C /root/gramsrv-src log --oneline -5
+          echo "=== nonce patch region ==="
+          sed -n '115,150p' /root/gramsrv-src/internal/mtprotoedge/exchange_compat.go 2>/dev/null
+          EOF
